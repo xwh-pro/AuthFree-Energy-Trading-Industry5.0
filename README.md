@@ -27,3 +27,7 @@ To reproduce the security proofs mentioned in the paper:
 2. Run the verification script:
    ```bash
    proverif formal-verification/protocol.pv
+3. Expected Output:
+   ```text
+   Query not attacker(LocationWitness[]) is true.
+   Query event(startPayment) ==> event(verifyPass) is true.
