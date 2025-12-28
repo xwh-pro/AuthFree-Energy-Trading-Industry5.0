@@ -1,0 +1,92 @@
+(* ProVerif Model for Auth-Free Energy Trading in Industry 5.0 *)
+(* Corresponds to Section IV-E of the TII paper *)
+
+(* --- 1. Channel Definitions --- *)
+free public_net: channel. (* The insecure public network (Internet/Blockchain) *)
+free secure_channel: channel [private]. (* The internal secure bus of the Bridge/Node *)
+
+(* --- 2. Types & Cryptographic Primitives --- *)
+type key.
+type coordinate.
+type proof.
+
+(* Digital Signatures *)
+fun sign(bitstring, key): bitstring.
+reduc forall m: bitstring, k: key; checksign(sign(m,k), pk(k)) = true.
+fun pk(key): key. (* Derives Public Key from Private Key *)
+
+(* Hashing (Abstracting ZK Proof) *)
+(* In the symbolic model, we treat ZKP as a hash of the witness that cannot be reversed *)
+fun hash(coordinate): bitstring.
+
+(* --- 3. Events for Security Goals --- *)
+event verifyPass.   (* Event: Logic verification passed on Service Chain *)
+event startPayment. (* Event: Payment started on Payment Chain *)
+
+(* --- 4. Security Queries (The Goals) --- *)
+
+(* Goal 1: Privacy (Secrecy) *)
+(* Verify that an attacker cannot deduce the raw 'LocationWitness' from the public network *)
+query attacker(new LocationWitness).
+
+(* Goal 2: Atomicity (Correspondence Assertion) *)
+(* Verify that Payment NEVER happens unless Verification has successfully passed *)
+(* This proves the "Verify-and-Pay" logic mentioned in the paper *)
+query event(startPayment) ==> event(verifyPass).
+
+(* --- 5. Process Macros --- *)
+
+(* Process: Mobile Embodied Agent (MEA) *)
+let Agent(sk: key, loc: coordinate) =
+    (* Step 1: Embodied Cognition - Generate ZK Proof locally *)
+    (* We model the ZK proof generation as hashing the location. 
+       The attacker sees the hash but cannot reverse it to get 'loc'. *)
+    let pi = hash(loc) in 
+    
+    (* Step 2: Transaction Construction *)
+    (* MEA signs the proof with its private key *)
+    let payload = sign((pi), sk) in
+    
+    (* Step 3: Submit to Service Chain (Public Network) *)
+    out(public_net, payload).
+
+(* Process: Service Chain Verifier Contract *)
+let Verifier(vk: key) =
+    (* Listen to the public network *)
+    in(public_net, msg: bitstring);
+    
+    (* Verify Signature (Identity Check) *)
+    if checksign(msg, vk) = true then
+    
+    (* Verify ZK Logic (Abstracted) *)
+    (* In formal model, we assume if signature verifies on a valid proof structure, it passes *)
+    event verifyPass;
+    
+    (* Emit Event / Trigger Bridge via secure internal mechanism *)
+    out(secure_channel, "Verified"). 
+
+(* Process: Event Bridge & Payment Chain *)
+let Bridge() =
+    (* Bridge listens to the secure internal event log of the Service Chain *)
+    in(secure_channel, trigger: bitstring);
+    
+    (* Logic: Only execute payment if 'Verified' signal is received *)
+    if trigger = "Verified" then
+    event startPayment.
+
+(* --- 6. Main System Process --- *)
+process
+    (* Setup: Generate Keys *)
+    new sk: key; 
+    let vk = pk(sk) in
+    out(public_net, vk); (* Publish Public Key to the network *)
+    
+    (* Setup: The Secret Location Data *)
+    new LocationWitness: coordinate; 
+    
+    (* Parallel Execution of the Entities *)
+    ( 
+      (!Agent(sk, LocationWitness)) | 
+      (!Verifier(vk)) | 
+      (!Bridge()) 
+    )
