@@ -1,0 +1,49 @@
+// Geo-ZKP Circuit for Industry 5.0 Energy Trading
+// Implements the logic described in Section IV-A of the paper.
+
+import "hashes/sha256/512bitPacked" as sha256packed;
+
+// Main Circuit
+// ---------------------------------------------------------
+// Private Witness (w):
+// - xu, yu: MEA's real coordinates
+// - e_cur: Current battery level
+// - sk_u: Private identity key
+// - salt: Random blinding factor
+//
+// Public Statement (x):
+// - xm, ym: MCV's anchor coordinates
+// - r_sq: Squared service radius (R^2)
+// - e_max: Maximum battery capacity
+// - e_req: Requested energy amount
+// - h_out_0, h_out_1: Public Identity Commitment (SHA256 output split into two 128-bit fields)
+
+def main(private field xu, private field yu, private field e_cur, private field sk_u, private field salt, field xm, field ym, field r_sq, field e_max, field e_req, field h_out_0, field h_out_1) {
+
+    // 1. Geofencing Check: (xu - xm)^2 + (yu - ym)^2 <= R^2
+    // We compute squared differences to avoid costly square root operations on embedded devices.
+    field diff_x = xu - xm;
+    field diff_y = yu - ym;
+    field dist_sq = diff_x * diff_x + diff_y * diff_y;
+
+    // Assert that the MEA is within the valid radius
+    // Note: In a real deployment, we use bit-decomposition for strict inequality checks (<). 
+    // Here we assume inputs fit within the field size preventing wrap-around.
+    assert(dist_sq <= r_sq);
+
+    // 2. Safety Check: e_cur + e_req <= e_max
+    // Prevent overcharging the battery
+    assert(e_cur + e_req <= e_max);
+
+    // 3. Identity Commitment: H_out = SHA256(xu || sk_u || salt)
+    // This binds the location and identity without revealing them.
+    // We pack 4 fields into 512 bits for SHA256 input: [xu, 0, sk_u, salt]
+    // (Assuming inputs fit in 128 bits for packing efficiency)
+    field[2] h_computed = sha256packed([xu, 0, sk_u, salt]);
+
+    // Verify that the computed hash matches the public commitment provided on-chain
+    assert(h_computed[0] == h_out_0);
+    assert(h_computed[1] == h_out_1);
+
+    return;
+}
